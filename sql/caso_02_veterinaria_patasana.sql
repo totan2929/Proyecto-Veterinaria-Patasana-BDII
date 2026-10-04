@@ -80,3 +80,36 @@ INSERT INTO detalle_cita (id_cita, id_servicio, cantidad, precio_unitario) VALUE
 (6, 2, 1, 35000),
 (7, 3, 1, 40000),
 (7, 4, 2, 25000);
+
+-- La consulta me permite determinar en una cita por cada cliente el total pagado por servicio, de acuerdo a la cantidad de servicios contratados según su tipo.
+-- Es decir, además responde a la pregunta ¿Cuánto se pagó por cada servicio contratado en cada cita y qué cliente lo recibió?
+SELECT ci.id_cita, c.nombre AS cliente, s.nombre AS servicio, dci.cantidad AS cantidad_servicios, dci.precio_unitario, (dci.cantidad * dci.precio_unitario) AS total_cancelado_servicio
+FROM cita ci
+INNER JOIN cliente c ON ci.id_cliente = c.id_cliente
+JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
+JOIN servicio s ON dci.id_servicio = s.id_servicio;
+
+
+-- La consulta permite identificar las citas en las que un cliente contrató más de 2 unidades de un servicio de la categoría 'consulta'
+-- y mostrar 1 en Derecho_Descuento cuando aplica.
+SELECT ci.id_cita, c.nombre AS cliente, dci.cantidad AS total_citas_por_servicio, (dci.cantidad > 2) AS derecho_descuento
+FROM cita ci
+JOIN cliente c ON c.id_cliente = ci.id_cliente
+JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
+JOIN servicio s ON dci.id_servicio = s.id_servicio
+WHERE s.categoria = 'consulta' AND dci.cantidad > 2;
+
+-- La consulta busca mostrar los clientes que tienen más de una cita registrada
+SELECT c.id_cliente, c.nombre
+FROM cliente c
+WHERE (SELECT COUNT(*) FROM cita ci
+WHERE ci.id_cliente = c.id_cliente) > 1;
+
+-- La consulta permite combinar en un solo listado los precios registrados en servicio y los precios unitarios registrados
+-- en detalle_cita, indicando el origen de cada valor.
+SELECT precio, 'servicio' AS tipo FROM servicio
+UNION
+SELECT precio_unitario, 'precio_unitario' AS tipo FROM detalle_cita;
+
+
+
