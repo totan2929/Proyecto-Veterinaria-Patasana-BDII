@@ -111,5 +111,38 @@ SELECT precio, 'servicio' AS tipo FROM servicio
 UNION
 SELECT precio_unitario, 'precio_unitario' AS tipo FROM detalle_cita;
 
+-- Muestra el gasto total en servicios de la categoría 'estetica' por cita y cliente,
+-- detallando la fecha, el servicio de belleza aplicado y el costo total del servicio.
+SELECT ci.id_cita, c.nombre AS cliente, ci.fecha AS fecha_cita, s.nombre AS servicio_estetica, dci.cantidad, (dci.cantidad * dci.precio_unitario) AS total_gastado_estetica
+FROM cliente c
+JOIN cita ci ON c.id_cliente = ci.id_cliente
+JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
+JOIN servicio s ON dci.id_servicio = s.id_servicio
+WHERE s.categoria = 'estetica';
+
+-- Identifica a los clientes que han realizado al menos un pago individual (por ítem de servicio)
+-- superior al precio promedio estándar de catálogo de la veterinaria.
+SELECT DISTINCT c.id_cliente, c.nombre AS cliente, c.telefono
+FROM cliente c
+WHERE EXISTS (
+    SELECT 1 
+    FROM cita ci 
+    JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
+    WHERE ci.id_cliente = c.id_cliente 
+        AND dci.precio_unitario > (SELECT AVG(precio) FROM servicio)
+);
+
+
+-- Unifica en un solo listado los correos electrónicos y los números telefónicos 
+-- de todos los clientes, especificando el tipo de dato para facilidades de contacto o exportación a CRM.
+SELECT nombre AS cliente, correo AS dato_contacto, 'Correo Electrónico' AS tipo_canal
+FROM cliente
+WHERE correo IS NOT NULL
+
+UNION
+
+SELECT nombre AS cliente, telefono AS dato_contacto, 'Teléfono / WhatsApp' AS tipo_canal
+FROM cliente
+WHERE telefono IS NOT NULL;
 
 
