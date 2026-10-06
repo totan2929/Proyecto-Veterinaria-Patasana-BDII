@@ -145,4 +145,61 @@ SELECT nombre AS cliente, telefono AS dato_contacto, 'Teléfono / WhatsApp' AS t
 FROM cliente
 WHERE telefono IS NOT NULL;
 
+-----------------------------------------------------------------------------------------------------
 
+-- La consulta permite identificar los clientes y fechas en las que se aplicaron vacunas, 
+-- facilitando el seguimiento del esquema de vacunacion de las mascotas.
+SELECT 
+    c.nombre AS cliente,
+    c.telefono,
+    ci.fecha AS fecha_vacunacion,
+    s.nombre AS vacuna_aplicada
+FROM cliente c
+INNER JOIN cita ci ON c.id_cliente = ci.id_cliente
+INNER JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
+INNER JOIN servicio s ON dci.id_servicio = s.id_servicio
+WHERE s.categoria = 'vacuna'
+ORDER BY ci.fecha DESC;
+
+------------------------------
+
+-- La consulta permite calcular la cantidad total de citas agendadas por cada cliente 
+-- utilizando una subconsulta correlacionada para evaluar la frecuencia de visitas.
+
+USE checkpoint_caso_02;
+
+SELECT 
+    c.id_cliente,
+    c.nombre AS cliente,
+    (SELECT MAX(ci.fecha) 
+     FROM cita ci 
+     WHERE ci.id_cliente = c.id_cliente) AS ultima_fecha_cita
+FROM cliente c;
+
+--------------------------------
+
+-- La consulta permite calcular la cantidad total de citas agendadas por cada cliente 
+-- utilizando una subconsulta correlacionada para evaluar la frecuencia de visitas.
+
+USE checkpoint_caso_02;
+
+SELECT 
+    c.id_cliente,
+    c.nombre AS cliente,
+    (SELECT MAX(ci.fecha) 
+     FROM cita ci 
+     WHERE ci.id_cliente = c.id_cliente) AS ultima_fecha_cita
+FROM cliente c;
+
+-----------------------------------------
+
+-- La consulta permite clasificar y unificar el catálogo de servicios de la veterinaria 
+-- en dos niveles de precio: Económico (menos de $40.000) y Premium ($40.000 o mas).
+
+SELECT nombre AS servicio, precio, 'Económico' AS tipo_precio
+FROM servicio
+WHERE precio < 40000
+UNION
+SELECT nombre AS servicio, precio, 'Premium' AS tipo_precio
+FROM servicio
+WHERE precio >= 40000;
