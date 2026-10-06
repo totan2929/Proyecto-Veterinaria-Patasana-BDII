@@ -81,6 +81,9 @@ INSERT INTO detalle_cita (id_cita, id_servicio, cantidad, precio_unitario) VALUE
 (7, 3, 1, 40000),
 (7, 4, 2, 25000);
 
+
+-- JOIN multi-tabla – Total pagado por servicio
+
 -- La consulta me permite determinar en una cita por cada cliente el total pagado por servicio, de acuerdo a la cantidad de servicios contratados según su tipo.
 -- Es decir, además responde a la pregunta ¿Cuánto se pagó por cada servicio contratado en cada cita y qué cliente lo recibió?
 SELECT ci.id_cita, c.nombre AS cliente, s.nombre AS servicio, dci.cantidad AS cantidad_servicios, dci.precio_unitario, (dci.cantidad * dci.precio_unitario) AS total_cancelado_servicio
@@ -89,6 +92,9 @@ INNER JOIN cliente c ON ci.id_cliente = c.id_cliente
 JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
 JOIN servicio s ON dci.id_servicio = s.id_servicio;
 
+--------------------------------------------------------------------------------------------------------------------------------
+
+-- JOIN multi-tabla – Derecho a descuento
 
 -- La consulta permite identificar las citas en las que un cliente contrató más de 2 unidades de un servicio de la categoría 'consulta'
 -- y mostrar 1 en Derecho_Descuento cuando aplica.
@@ -99,17 +105,29 @@ JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
 JOIN servicio s ON dci.id_servicio = s.id_servicio
 WHERE s.categoria = 'consulta' AND dci.cantidad > 2;
 
+-----------------------------------------------------------------------------------------------------------------------------------
+
+-- Subconsulta correlacionada – Clientes con más de una cita
+
 -- La consulta busca mostrar los clientes que tienen más de una cita registrada
 SELECT c.id_cliente, c.nombre
 FROM cliente c
 WHERE (SELECT COUNT(*) FROM cita ci
 WHERE ci.id_cliente = c.id_cliente) > 1;
 
+-------------------------------------------------------------------------------------------------------------------------------------
+
+-- UNION – Listado de precios
+
 -- La consulta permite combinar en un solo listado los precios registrados en servicio y los precios unitarios registrados
 -- en detalle_cita, indicando el origen de cada valor.
 SELECT precio, 'servicio' AS tipo FROM servicio
 UNION
 SELECT precio_unitario, 'precio_unitario' AS tipo FROM detalle_cita;
+
+-------------------------------------------------------------------------------------------------------------------------------------
+
+-- JOIN multi-tabla - Consumo de Servicios de Estética 
 
 -- Muestra el gasto total en servicios de la categoría 'estetica' por cita y cliente,
 -- detallando la fecha, el servicio de belleza aplicado y el costo total del servicio.
@@ -119,6 +137,10 @@ JOIN cita ci ON c.id_cliente = ci.id_cliente
 JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
 JOIN servicio s ON dci.id_servicio = s.id_servicio
 WHERE s.categoria = 'estetica';
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- Subconsulta correlacionada - Clientes con Pagos por Encima del Promedio 
 
 -- Identifica a los clientes que han realizado al menos un pago individual (por ítem de servicio)
 -- superior al precio promedio estándar de catálogo de la veterinaria.
@@ -131,6 +153,10 @@ WHERE EXISTS (
     WHERE ci.id_cliente = c.id_cliente 
         AND dci.precio_unitario > (SELECT AVG(precio) FROM servicio)
 );
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--UNION – Directorio Unificado de Canales de Contacto  
 
 
 -- Unifica en un solo listado los correos electrónicos y los números telefónicos 
@@ -146,6 +172,8 @@ FROM cliente
 WHERE telefono IS NOT NULL;
 
 -----------------------------------------------------------------------------------------------------
+
+-- JOIN multi-tabla – Seguimiento de Vacunación
 
 -- La consulta permite identificar los clientes y fechas en las que se aplicaron vacunas, 
 -- facilitando el seguimiento del esquema de vacunacion de las mascotas.
@@ -163,6 +191,10 @@ ORDER BY ci.fecha DESC;
 
 ------------------------------
 
+
+-- Subconsulta correlacionada - Última fecha de visita por cliente
+
+
 -- La consulta permite calcular la cantidad total de citas agendadas por cada cliente 
 -- utilizando una subconsulta correlacionada para evaluar la frecuencia de visitas.
 
@@ -178,20 +210,11 @@ FROM cliente c;
 
 --------------------------------
 
--- La consulta permite calcular la cantidad total de citas agendadas por cada cliente 
--- utilizando una subconsulta correlacionada para evaluar la frecuencia de visitas.
 
-USE checkpoint_caso_02;
-
-SELECT 
-    c.id_cliente,
-    c.nombre AS cliente,
-    (SELECT MAX(ci.fecha) 
-     FROM cita ci 
-     WHERE ci.id_cliente = c.id_cliente) AS ultima_fecha_cita
-FROM cliente c;
 
 -----------------------------------------
+
+-- UNION - Clasificación de Servicios por Rango de Precios (Económicos vs. Premium)
 
 -- La consulta permite clasificar y unificar el catálogo de servicios de la veterinaria 
 -- en dos niveles de precio: Económico (menos de $40.000) y Premium ($40.000 o mas).
