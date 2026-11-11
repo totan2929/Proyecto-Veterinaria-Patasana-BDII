@@ -38,6 +38,19 @@ CREATE TABLE detalle_cita (
     FOREIGN KEY (id_servicio) REFERENCES servicio(id_servicio)
 );
 
+USE checkpoint_caso_02;
+WITH totales_por_cita AS (
+    SELECT c.id_cita, c.id_cliente, c.fecha, SUM(dc.cantidad * dc.precio_unitario) AS total_cita
+    FROM cita c
+    JOIN detalle_cita dc ON c.id_cita = dc.id_cita
+    GROUP BY dc.id_cita
+)
+SELECT id_cita, id_cliente, fecha, total_cita,
+  SUM(total_cita) OVER (PARTITION BY id_cliente ORDER BY fecha) AS acumulado_servicio
+FROM totales_por_cita
+ORDER BY id_cliente, fecha;
+
+
 INSERT INTO servicio (nombre, categoria, precio) VALUES
 ('Consulta general', 'consulta', 60000),
 ('Vacuna antirrábica', 'vacuna', 35000),
@@ -156,7 +169,7 @@ WHERE EXISTS (
 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
---UNION – Directorio Unificado de Canales de Contacto  
+-- UNION – Directorio Unificado de Canales de Contacto  
 
 
 -- Unifica en un solo listado los correos electrónicos y los números telefónicos 
@@ -226,3 +239,154 @@ UNION
 SELECT nombre AS servicio, precio, 'Premium' AS tipo_precio
 FROM servicio
 WHERE precio >= 40000;
+
+
+--------------------------------------------------------------------------------------
+-- FUNCIONES Y PROCEDIMIENTOS ALMACENADOS
+
+-- fn_total_cita (Función simple):
+-- Calcula y retorna el costo total de una cita sumando (cantidad * precio_unitario)
+-- de sus servicios asociados.
+
+DROP FUNCTION IF EXISTS fn_total_cita;
+
+DELIMITER $$
+
+CREATE FUNCTION fn_total_cita(p_id_cita INT)
+RETURNS DECIMAL(10,2)
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE v_total DECIMAL(10,2);
+
+    SELECT SUM(cantidad * precio_unitario)
+      INTO v_total
+      FROM detalle_cita
+      WHERE id_cita = p_id_cita;
+
+    RETURN COALESCE(v_total, 0.00);
+END$$
+
+DELIMITER ;
+
+
+-- Prueba: Uso dentro de un SELECT como columna calculada
+
+SELECT 
+    ci.id_cita,
+    c.nombre AS cliente,
+    ci.fecha,
+    fn_total_cita(ci.id_cita) AS total_pagar_cita
+FROM cita ci
+JOIN cliente c ON c.id_cliente = ci.id_cliente
+ORDER BY ci.id_cita;
+
+-- Prueba individual directa para una sola cita
+SELECT fn_total_cita(1) AS total_cita_1;
+SELECT fn_total_cita(2) AS total_cita_2; 
+SELECT fn_total_cita(3) AS total_cita_3;
+------------------------------------------------------------------------------
+
+
+-- fn_clasificar_precio_servicio (Función con control de flujo):
+-- Evalúa el precio de un servicio mediante bloques IF/ELSEIF/ELSE y devuelve 
+-- ('Económico', 'Estándar' o 'Premium').
+
+
+DROP FUNCTION IF EXISTS fn_clasificar_precio_servicio;
+
+DELIMITER $$
+
+CREATE FUNCTION fn_clasificar_precio_servicio(p_precio DECIMAL(10,2))
+RETURNS VARCHAR(20)
+DETERMINISTIC
+BEGIN
+    IF p_precio < 30000 THEN
+        RETURN 'Económico';
+    ELSEIF p_precio < 50000 THEN
+        RETURN 'Estándar';
+    ELSE
+        RETURN 'Premium';
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- Uso dentro de un SELECT sobre el catálogo de servicios
+SELECT 
+    id_servicio,
+    nombre AS servicio,
+    categoria,
+    precio,
+    fn_clasificar_precio_servicio(precio) AS segmento_tarifa
+FROM servicio
+ORDER BY precio ASC;
+
+
+-- Prueba individual directa probando los 3 rangos del condicional
+SELECT fn_clasificar_precio_servicio(15000) AS prueba_economico; 
+SELECT fn_clasificar_precio_servicio(35000) AS prueba_estandar;
+SELECT fn_clasificar_precio_servicio(60000) AS prueba_premium;
+
+----------------------------------------------------------------------------
+
+-- fn_nivel_fidelidad_cliente (Función propia del negocio):
+-- Cuenta el historial de citas de un cliente y lo clasifica ('Sin visitas', 'Cliente Nuevo'
+-- o 'Cliente Frecuente').
+
+
+DROP FUNCTION IF EXISTS fn_nivel_fidelidad_cliente;
+
+DELIMITER $$
+
+CREATE FUNCTION fn_nivel_fidelidad_cliente(p_id_cliente INT)
+RETURNS VARCHAR(25)
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE v_total_citas INT;
+
+    SELECT COUNT(*)
+      INTO v_total_citas
+      FROM cita
+      WHERE id_cliente = p_id_cliente;
+
+    IF v_total_citas = 0 THEN
+        RETURN 'Sin visitas';
+    ELSEIF v_total_citas = 1 THEN
+        RETURN 'Cliente Nuevo';
+    ELSE
+        RETURN 'Cliente Frecuente';
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- Uso dentro de un SELECT
+SELECT 
+    c.id_cliente,
+    c.nombre AS cliente,
+    c.telefono,
+    fn_nivel_fidelidad_cliente(c.id_cliente) AS fidelidad
+FROM cliente c
+ORDER BY c.id_cliente;
+
+
+-- Prueba individual directa para cada nivel de fidelidad
+SELECT fn_nivel_fidelidad_cliente(1) AS fidelidad_mariana; 
+SELECT fn_nivel_fidelidad_cliente(3) AS fidelidad_isabella; 
+SELECT fn_nivel_fidelidad_cliente(6) AS fidelidad_nicolas;
+
+
+-- Prueba filtrando un cliente específico por su id_cliente
+SELECT 
+    c.id_cliente,
+    c.nombre AS cliente,
+    c.telefono,
+    fn_nivel_fidelidad_cliente(c.id_cliente) AS fidelidad
+FROM cliente c
+WHERE c.id_cliente = 1; -- Prueba solo con Mariana Cárdenas
+
+
+---------------------------------------------------------------------------------------------
+
