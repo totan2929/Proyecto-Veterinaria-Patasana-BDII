@@ -244,6 +244,7 @@ WHERE precio >= 40000;
 --------------------------------------------------------------------------------------
 -- FUNCIONES Y PROCEDIMIENTOS ALMACENADOS
 
+-- Función 1
 -- fn_total_cita (Función simple):
 -- Calcula y retorna el costo total de una cita sumando (cantidad * precio_unitario)
 -- de sus servicios asociados.
@@ -287,7 +288,7 @@ SELECT fn_total_cita(2) AS total_cita_2;
 SELECT fn_total_cita(3) AS total_cita_3;
 ------------------------------------------------------------------------------
 
-
+-- Función 2
 -- fn_clasificar_precio_servicio (Función con control de flujo):
 -- Evalúa el precio de un servicio mediante bloques IF/ELSEIF/ELSE y devuelve 
 -- ('Económico', 'Estándar' o 'Premium').
@@ -330,6 +331,7 @@ SELECT fn_clasificar_precio_servicio(60000) AS prueba_premium;
 
 ----------------------------------------------------------------------------
 
+-- Función 3
 -- fn_nivel_fidelidad_cliente (Función propia del negocio):
 -- Cuenta el historial de citas de un cliente y lo clasifica ('Sin visitas', 'Cliente Nuevo'
 -- o 'Cliente Frecuente').
@@ -388,6 +390,8 @@ FROM cliente c
 WHERE c.id_cliente = 1; -- Prueba solo con Mariana Cárdenas
 
 ---------------------------------------------------------------------------------------------
+
+-- Función 4
 -- fn_subtotal_servicio_cita: Función simple – Total pagado por servicio
 -- Función basada en el JOIN
 -- Permite determinar en una cita, por cada cliente, el total pagado por un
@@ -449,6 +453,8 @@ JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
 JOIN servicio s ON dci.id_servicio = s.id_servicio
 ORDER BY ci.id_cita;
 ---------------------------------------------------------------------------------------------
+
+-- Función 5
 -- fn_derecho_descuento: Función con control de flujo – Derecho a descuento
 -- Se crea esta función basada en el JOIN 2
 -- Permite identificar las citas en las que un cliente contrató más de 2 unidades
@@ -514,6 +520,7 @@ ORDER BY ci.id_cita;
 
 ---------------------------------------------------------------------------------------------
 
+-- Procedimiento 1
 -- sp_agendar_cita: Procedimiento con parámetros IN y OUT
 
 DROP PROCEDURE IF EXISTS sp_agendar_cita;
@@ -547,6 +554,7 @@ SELECT * FROM cita WHERE id_cliente = 6;
 
 ---------------------------------------------------------------------------------------------
 
+-- Procedimiento 2
 -- sp_agregar_servicio_cita: Modifica datos + validación con SIGNAL
 
 DROP PROCEDURE IF EXISTS sp_agregar_servicio_cita;
@@ -598,6 +606,7 @@ SELECT fn_total_cita(@nueva_cita_id) AS total_cita_despues; -- esperado: 60000.0
 
 ---------------------------------------------------------------------------------------------
 
+-- Procedimiento 3
 -- sp_actualizar_precio_servicio: Procedimiento propio con lógica y SIGNAL
 
 DROP PROCEDURE IF EXISTS sp_actualizar_precio_servicio;
