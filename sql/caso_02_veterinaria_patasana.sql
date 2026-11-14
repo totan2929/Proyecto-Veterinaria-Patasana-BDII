@@ -390,3 +390,41 @@ WHERE c.id_cliente = 1; -- Prueba solo con Mariana Cárdenas
 
 ---------------------------------------------------------------------------------------------
 
+-- 1. fn_total_estetica_cita
+-- Calcula el gasto total en servicios de categoría 'estetica' para una cita específica.
+
+DROP FUNCTION IF EXISTS fn_total_estetica_cita;
+DELIMITER $$
+
+CREATE FUNCTION fn_total_estetica_cita(p_id_cita INT)
+RETURNS DECIMAL(10,2)
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE v_total DECIMAL(10,2);
+
+    SELECT SUM(dci.cantidad * dci.precio_unitario)
+        INTO v_total
+        FROM detalle_cita dci
+        JOIN servicio s ON dci.id_servicio = s.id_servicio
+        WHERE dci.id_cita = p_id_cita 
+        AND s.categoria = 'estetica';
+
+    RETURN COALESCE(v_total, 0.00);
+END$$
+
+DELIMITER ;
+
+-- consulta para ejecutar la funcion fn_total_estetica_cita
+SELECT 
+    ci.id_cita,
+    c.nombre AS cliente,
+    ci.fecha AS fecha_cita,
+    s.nombre AS servicio_estetica,
+    dci.cantidad,
+    fn_total_estetica_cita(ci.id_cita) AS total_gastado_estetica
+FROM cliente c
+JOIN cita ci ON c.id_cliente = ci.id_cliente
+JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
+JOIN servicio s ON dci.id_servicio = s.id_servicio
+WHERE s.categoria = 'estetica';
