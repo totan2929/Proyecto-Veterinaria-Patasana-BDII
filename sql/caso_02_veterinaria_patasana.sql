@@ -387,8 +387,265 @@ SELECT
 FROM cliente c
 WHERE c.id_cliente = 1; -- Prueba solo con Mariana Cárdenas
 
+---------------------------------------------------------------------------------------------
+-- fn_subtotal_servicio_cita: Función simple – Total pagado por servicio
+-- Función basada en el JOIN
+-- Permite determinar en una cita, por cada cliente, el total pagado por un
+-- servicio específico de acuerdo con la cantidad contratada y su precio unitario.
+-- Responde a la pregunta: ¿Cuánto se pagó por cada servicio contratado en cada cita?
+
+USE checkpoint_caso_02;
+
+DROP FUNCTION IF EXISTS fn_subtotal_servicio_cita;
+
+DELIMITER $$
+
+CREATE FUNCTION fn_subtotal_servicio_cita(p_id_detalle_cita INT)
+RETURNS DECIMAL(10,2)
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE v_subtotal DECIMAL(10,2);
+
+    SELECT (cantidad * precio_unitario)
+      INTO v_subtotal
+      FROM detalle_cita
+      WHERE id_detalle_cita = p_id_detalle_cita;
+
+    RETURN COALESCE(v_subtotal, 0.00);
+END$$
+
+DELIMITER ;
+
+-- Prueba 1: Llamada individual directa para un ítem específico
+SELECT fn_subtotal_servicio_cita(1) AS subtotal_item_1; -- esperado: 40000.00 (1 * 40000)
+SELECT fn_subtotal_servicio_cita(2) AS subtotal_item_2; -- esperado: 50000.00 (2 * 25000)
+
+-- Prueba 2: Filtrando una sola cita en el JOIN multi-tabla (ej. id_cita = 1)
+SELECT 
+    ci.id_cita, 
+    c.nombre AS cliente, 
+    s.nombre AS servicio, 
+    dci.cantidad AS cantidad_servicios, 
+    dci.precio_unitario, 
+    fn_subtotal_servicio_cita(dci.id_detalle_cita) AS total_cancelado_servicio
+FROM cita ci
+INNER JOIN cliente c ON ci.id_cliente = c.id_cliente
+JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
+JOIN servicio s ON dci.id_servicio = s.id_servicio
+WHERE ci.id_cita = 1;
+
+-- Prueba 3: Aplicada directamente al listado completo del primer ejercicio de JOIN multi-tabla
+SELECT 
+    ci.id_cita, 
+    c.nombre AS cliente, 
+    s.nombre AS servicio, 
+    dci.cantidad AS cantidad_servicios, 
+    dci.precio_unitario, 
+    fn_subtotal_servicio_cita(dci.id_detalle_cita) AS total_cancelado_servicio
+FROM cita ci
+INNER JOIN cliente c ON ci.id_cliente = c.id_cliente
+JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
+JOIN servicio s ON dci.id_servicio = s.id_servicio
+ORDER BY ci.id_cita;
+---------------------------------------------------------------------------------------------
+-- fn_derecho_descuento: Función con control de flujo – Derecho a descuento
+-- Se crea esta función basada en el JOIN 2
+-- Permite identificar las citas en las que un cliente contrató más de 2 unidades
+-- de un servicio de la categoría 'consulta' y evaluar mediante control de flujo
+-- (IF/ELSEIF/ELSE) si aplica o no el beneficio de descuento.
+
+USE checkpoint_caso_02;
+
+DROP FUNCTION IF EXISTS fn_derecho_descuento;
+
+DELIMITER $$
+
+CREATE FUNCTION fn_derecho_descuento(
+    p_categoria VARCHAR(50),
+    p_cantidad INT
+)
+RETURNS VARCHAR(30)
+DETERMINISTIC
+BEGIN
+    IF p_categoria = 'consulta' AND p_cantidad > 2 THEN
+        RETURN 'Aplica descuento';
+    ELSEIF p_categoria = 'consulta' AND p_cantidad <= 2 THEN
+        RETURN 'No aplica (mínimo 3)';
+    ELSE
+        RETURN 'Categoría sin descuento';
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- Prueba 1: Llamada individual directa probando los 3 caminos del IF/ELSEIF/ELSE
+SELECT fn_derecho_descuento('consulta', 3) AS caso_con_descuento;   -- esperado: 'Aplica descuento'
+SELECT fn_derecho_descuento('consulta', 2) AS caso_faltan_unidades; -- esperado: 'No aplica (mínimo 3)'
+SELECT fn_derecho_descuento('estetica', 4) AS caso_otra_categoria;  -- esperado: 'Categoría sin descuento'
+
+-- Prueba 2: Aplicada exactamente al segundo ejercicio de JOIN (filtrando los que sí aplican)
+SELECT 
+    ci.id_cita, 
+    c.nombre AS cliente, 
+    s.nombre AS servicio,
+    s.categoria,
+    dci.cantidad AS total_citas_por_servicio, 
+    fn_derecho_descuento(s.categoria, dci.cantidad) AS derecho_descuento
+FROM cita ci
+JOIN cliente c ON c.id_cliente = ci.id_cliente
+JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
+JOIN servicio s ON dci.id_servicio = s.id_servicio
+WHERE s.categoria = 'consulta' AND dci.cantidad > 2;
+
+-- Prueba 3: Listado general en el JOIN para ver cómo clasifica todas las citas
+SELECT 
+    ci.id_cita, 
+    c.nombre AS cliente, 
+    s.nombre AS servicio,
+    s.categoria,
+    dci.cantidad AS total_citas_por_servicio, 
+    fn_derecho_descuento(s.categoria, dci.cantidad) AS derecho_descuento
+FROM cita ci
+JOIN cliente c ON c.id_cliente = ci.id_cliente
+JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
+JOIN servicio s ON dci.id_servicio = s.id_servicio
+ORDER BY ci.id_cita;
 
 ---------------------------------------------------------------------------------------------
+
+-- sp_agendar_cita: Procedimiento con parámetros IN y OUT
+
+DROP PROCEDURE IF EXISTS sp_agendar_cita;
+
+DELIMITER $$
+
+CREATE PROCEDURE sp_agendar_cita(
+    IN  p_id_cliente INT,
+    IN  p_fecha DATE,
+    OUT p_id_cita_generada INT
+)
+BEGIN
+    INSERT INTO cita (fecha, id_cliente)
+    VALUES (p_fecha, p_id_cliente);
+
+    SET p_id_cita_generada = LAST_INSERT_ID();
+END$$
+
+DELIMITER ;
+
+-- Antes: ¿Cuántas citas tiene Nicolás Vélez (id_cliente = 6)? (esperado: 0)
+SELECT COUNT(*) AS citas_nicolas_antes FROM cita WHERE id_cliente = 6;
+
+-- Ejecución del procedimiento
+CALL sp_agendar_cita(6, '2026-11-15', @nueva_cita_id);
+SELECT @nueva_cita_id AS id_cita_creada;
+
+-- Después: Verificar que ahora tiene 1 cita registrada
+SELECT COUNT(*) AS citas_nicolas_despues FROM cita WHERE id_cliente = 6;
+SELECT * FROM cita WHERE id_cliente = 6;
+
+---------------------------------------------------------------------------------------------
+
+-- sp_agregar_servicio_cita: Modifica datos + validación con SIGNAL
+
+DROP PROCEDURE IF EXISTS sp_agregar_servicio_cita;
+
+DELIMITER $$
+
+CREATE PROCEDURE sp_agregar_servicio_cita(
+    IN p_id_cita INT,
+    IN p_id_servicio INT,
+    IN p_cantidad INT
+)
+BEGIN
+    DECLARE v_existe_cita INT;
+    DECLARE v_precio_actual DECIMAL(10,2);
+
+    SELECT COUNT(*) INTO v_existe_cita
+    FROM cita
+    WHERE id_cita = p_id_cita;
+
+    SELECT precio INTO v_precio_actual
+    FROM servicio
+    WHERE id_servicio = p_id_servicio;
+
+    IF v_existe_cita = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Error: La cita indicada no existe en el sistema';
+    ELSEIF v_precio_actual IS NULL THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Error: El servicio solicitado no existe en el catálogo';
+    ELSEIF p_cantidad <= 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Error: La cantidad de servicios debe ser mayor a cero';
+    ELSE
+        INSERT INTO detalle_cita (id_cita, id_servicio, cantidad, precio_unitario)
+        VALUES (p_id_cita, p_id_servicio, p_cantidad, v_precio_actual);
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- Caso válido: Agregar 1 'Consulta general' (id_servicio = 1, $60.000) a la nueva cita de Nicolás (@nueva_cita_id)
+SELECT fn_total_cita(@nueva_cita_id) AS total_cita_antes;   -- esperado: 0.00
+CALL sp_agregar_servicio_cita(@nueva_cita_id, 1, 1);
+SELECT fn_total_cita(@nueva_cita_id) AS total_cita_despues; -- esperado: 60000.00
+
+-- Caso inválido (descomentar para probar que SIGNAL detiene la inserción):
+-- CALL sp_agregar_servicio_cita(@nueva_cita_id, 1, 0);
+-- Error esperado: "Error: La cantidad de servicios debe ser mayor a cero"
+
+---------------------------------------------------------------------------------------------
+
+-- sp_actualizar_precio_servicio: Procedimiento propio con lógica y SIGNAL
+
+DROP PROCEDURE IF EXISTS sp_actualizar_precio_servicio;
+
+DELIMITER $$
+
+CREATE PROCEDURE sp_actualizar_precio_servicio(
+    IN p_id_servicio INT,
+    IN p_porcentaje_cambio DECIMAL(5,2)
+)
+BEGIN
+    DECLARE v_precio_actual DECIMAL(10,2);
+    DECLARE v_nuevo_precio DECIMAL(10,2);
+
+    SELECT precio INTO v_precio_actual
+    FROM servicio
+    WHERE id_servicio = p_id_servicio;
+
+    IF v_precio_actual IS NULL THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Error: El servicio que intenta actualizar no existe';
+    ELSE
+        SET v_nuevo_precio = v_precio_actual * (1 + (p_porcentaje_cambio / 100));
+
+        IF v_nuevo_precio <= 0 THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Error: El porcentaje ingresado produce un precio inválido (menor o igual a 0)';
+        ELSE
+            UPDATE servicio
+               SET precio = v_nuevo_precio
+             WHERE id_servicio = p_id_servicio;
+        END IF;
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- Caso válido: Incrementar en 10% el precio de 'Corte de uñas' (id_servicio = 6, precio original 15000)
+SELECT id_servicio, nombre, precio AS precio_antes FROM servicio WHERE id_servicio = 6;   -- esperado: 15000.00
+CALL sp_actualizar_precio_servicio(6, 10.00);
+SELECT id_servicio, nombre, precio AS precio_despues FROM servicio WHERE id_servicio = 6; -- esperado: 16500.00
+
+-- Caso inválido (descomentar para probar que SIGNAL protege el precio):
+-- CALL sp_actualizar_precio_servicio(6, -120.00);
+-- Error esperado: "Error: El porcentaje ingresado produce un precio inválido (menor o igual a 0)"
+---------------------------------------------------------------------------------------------------------
+
+
 
 -- fn_total_estetica_cita
 -- Calcula el gasto total en servicios de categoría 'estetica' para una cita específica.
