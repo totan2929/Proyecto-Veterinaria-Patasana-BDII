@@ -260,9 +260,9 @@ BEGIN
     DECLARE v_total DECIMAL(10,2);
 
     SELECT SUM(cantidad * precio_unitario)
-      INTO v_total
-      FROM detalle_cita
-      WHERE id_cita = p_id_cita;
+        INTO v_total
+        FROM detalle_cita
+        WHERE id_cita = p_id_cita;
 
     RETURN COALESCE(v_total, 0.00);
 END$$
@@ -347,9 +347,9 @@ BEGIN
     DECLARE v_total_citas INT;
 
     SELECT COUNT(*)
-      INTO v_total_citas
-      FROM cita
-      WHERE id_cliente = p_id_cliente;
+        INTO v_total_citas
+        FROM cita
+        WHERE id_cliente = p_id_cliente;
 
     IF v_total_citas = 0 THEN
         RETURN 'Sin visitas';
@@ -390,7 +390,7 @@ WHERE c.id_cliente = 1; -- Prueba solo con Mariana Cárdenas
 
 ---------------------------------------------------------------------------------------------
 
--- 1. fn_total_estetica_cita
+-- fn_total_estetica_cita
 -- Calcula el gasto total en servicios de categoría 'estetica' para una cita específica.
 
 DROP FUNCTION IF EXISTS fn_total_estetica_cita;
@@ -428,3 +428,39 @@ JOIN cita ci ON c.id_cliente = ci.id_cliente
 JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
 JOIN servicio s ON dci.id_servicio = s.id_servicio
 WHERE s.categoria = 'estetica';
+
+---------------------------------------------------------------------------------------------
+-- fn_cliente_supera_promedio
+-- Devuelve 1 si el cliente ha realizado algún pago individual superior
+-- al precio promedio del catálogo de servicios, o 0 en caso contrario.
+
+DROP FUNCTION IF EXISTS fn_cliente_supera_promedio;
+DELIMITER $$
+
+CREATE FUNCTION fn_cliente_supera_promedio(p_id_cliente INT)
+RETURNS INT
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE v_supera INT DEFAULT 0;
+
+    SELECT IF(COUNT(*) > 0, 1, 0)
+        INTO v_supera
+        FROM cita ci
+        JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
+        WHERE ci.id_cliente = p_id_cliente
+        AND dci.precio_unitario > (SELECT AVG(precio) FROM servicio);
+
+    RETURN v_supera;
+END$$
+
+DELIMITER ;
+
+-- consulta para ejecutar la funcion fn_cliente_supera_promedio
+
+SELECT c.id_cliente, c.nombre AS cliente, c.telefono
+FROM cliente c
+WHERE fn_cliente_supera_promedio(c.id_cliente) = 1;
+
+
+----------------------------------------------------------------------------------------------------
