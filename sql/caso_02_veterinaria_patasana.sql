@@ -464,3 +464,46 @@ WHERE fn_cliente_supera_promedio(c.id_cliente) = 1;
 
 
 ----------------------------------------------------------------------------------------------------
+
+
+-- fn_obtener_contacto_cliente
+-- Retorna el correo electrónico o teléfono de un cliente según
+-- el canal de contacto especificado.
+
+DROP FUNCTION IF EXISTS fn_obtener_contacto_cliente;
+DELIMITER $$
+
+CREATE FUNCTION fn_obtener_contacto_cliente(
+    p_id_cliente INT, 
+    p_tipo_canal VARCHAR(20)
+)
+RETURNS VARCHAR(100)
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE v_contacto VARCHAR(100);
+
+    IF LOWER(p_tipo_canal) = 'correo' THEN
+            SELECT correo INTO v_contacto 
+            FROM cliente 
+            WHERE id_cliente = p_id_cliente;
+    ELSEIF LOWER(p_tipo_canal) IN ('telefono', 'teléfono', 'whatsapp') THEN
+            SELECT telefono INTO v_contacto 
+            FROM cliente 
+            WHERE id_cliente = p_id_cliente;
+    ELSE
+        SET v_contacto = 'Canal no válido';
+    END IF;
+
+    RETURN COALESCE(v_contacto, 'Sin registro');
+END$$
+
+DELIMITER ;
+
+-- consulta para ejecutar la funcion fn_obtener_contacto_cliente
+
+SELECT 
+    nombre AS cliente,
+    fn_obtener_contacto_cliente(id_cliente, 'correo') AS correo_contacto,
+    fn_obtener_contacto_cliente(id_cliente, 'telefono') AS telefono_contacto
+FROM cliente;
