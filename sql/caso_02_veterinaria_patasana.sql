@@ -773,3 +773,227 @@ SELECT
     fn_obtener_contacto_cliente(id_cliente, 'correo') AS correo_contacto,
     fn_obtener_contacto_cliente(id_cliente, 'telefono') AS telefono_contacto
 FROM cliente;
+
+
+
+-------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------
+
+/*
+fn_gasto_historico_cliente (Función almacenada)
+- Qué hace o decide: Calcula el gasto histórico acumulado de un cliente sumando el subtotal 
+  (cantidad * precio_unitario) de todos los servicios consumidos a lo largo de todas sus citas, 
+  devolviendo 0 si el cliente aún no registra consumos.
+*/
+
+USE checkpoint_caso_02;
+
+DROP FUNCTION IF EXISTS fn_gasto_historico_cliente;
+DELIMITER $$
+CREATE FUNCTION fn_gasto_historico_cliente(p_id_cliente INT)
+RETURNS DECIMAL(10,2)
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE v_gasto_total DECIMAL(10,2);
+    
+    SELECT SUM(dci.cantidad * dci.precio_unitario)
+      INTO v_gasto_total
+      FROM cita ci
+      JOIN detalle_cita dci ON ci.id_cita = dci.id_cita
+     WHERE ci.id_cliente = p_id_cliente;
+      
+    RETURN COALESCE(v_gasto_total, 0);
+END$$
+DELIMITER ;
+
+-- Prueba : Consultar el gasto histórico de todos los clientes (incluyendo los que tienen $0)
+SELECT id_cliente, 
+       nombre AS cliente, 
+       fn_gasto_historico_cliente(id_cliente) AS gasto_historico
+FROM cliente
+ORDER BY gasto_historico DESC;
+
+------------------------------------------------------------------------------------------
+/*
+fn_clasificacion_cliente (Función almacenada)
+- Qué hace o decide: Evalúa el monto total gastado mediante estructuras condicionales 
+  (IF/ELSEIF/ELSE) y clasifica al cliente en 'Cliente Estrella', 'Cliente Frecuente' o 'Cliente Ocasional'.
+*/
+
+DROP FUNCTION IF EXISTS fn_clasificacion_cliente;
+DELIMITER $$
+CREATE FUNCTION fn_clasificacion_cliente(p_total_gastado DECIMAL(10,2))
+RETURNS VARCHAR(20)
+DETERMINISTIC
+BEGIN
+    IF p_total_gastado >= 100000 THEN
+        RETURN 'Cliente Estrella';
+    ELSEIF p_total_gastado >= 50000 THEN
+        RETURN 'Cliente Frecuente';
+    ELSE
+        RETURN 'Cliente Ocasional';
+    END IF;
+END$$
+DELIMITER ;
+
+SELECT c.nombre AS cliente, 
+       fn_total_cita(ci.id_cita) AS gasto_cita,
+       fn_clasificacion_cliente(fn_total_cita(ci.id_cita)) AS clasificacion
+FROM cita ci
+JOIN cliente c ON c.id_cliente = ci.id_cliente;
+
+----------------------------------------------------------------------------------------------
+/*
+fn_tipo_servicio (Función almacenada)
+- Qué hace o decide: Evalúa el precio base de un servicio del catálogo y decide si 
+  pertenece a la categoría 'Premium' ($40.000 o más) o 'Económico' (menos de $40.000).
+*/
+
+DROP FUNCTION IF EXISTS fn_tipo_servicio;
+DELIMITER $$
+CREATE FUNCTION fn_tipo_servicio(p_precio DECIMAL(10,2))
+RETURNS VARCHAR(20)
+DETERMINISTIC
+BEGIN
+    IF p_precio >= 40000 THEN
+        RETURN 'Premium';
+    ELSE
+        RETURN 'Económico';
+    END IF;
+END$$
+DELIMITER ;
+
+-- Prueba : Según el precio se clasifican los clientes
+SELECT nombre AS servicio, precio, fn_tipo_servicio(precio) AS tipo_precio
+FROM servicio
+ORDER BY precio DESC;
+
+------------------------------------------------------------------------------------------
+/*
+sp_aplicar_descuento_volumen (Procedimiento almacenado)
+- Qué hace o decide: Verifica si una cita acumula más de 2 unidades de servicio contratadas; 
+  si cumple la regla de volumen, aplica un porcentaje de descuento sobre el precio_unitario de sus 
+  ítems en detalle_cita y devuelve el nuevo total recalculado mediante un parámetro OUT.
+*/
+
+USE checkpoint_caso_02;
+
+DROP PROCEDURE IF EXISTS sp_aplicar_descuento_volumen;
+DELIMITER $$
+CREATE PROCEDURE sp_aplicar_descuento_volumen(
+    IN  p_id_cita INT,
+    IN  p_porcentaje_desc DECIMAL(5,2),
+    OUT p_nuevo_total DECIMAL(10,2)
+)
+BEGIN
+    DECLARE v_total_unidades INT;
+
+    -- Contar cuántas unidades de servicio tiene la cita
+    SELECT COALESCE(SUM(cantidad), 0)
+      INTO v_total_unidades
+      FROM detalle_cita
+     WHERE id_cita = p_id_cita;
+
+    -- Aplicar el descuento solo si supera las 2 unidades (regla de volumen)
+    IF v_total_unidades > 2 THEN
+        UPDATE detalle_cita
+           SET precio_unitario = precio_unitario - (precio_unitario * (p_porcentaje_desc / 100))
+         WHERE id_cita = p_id_cita;
+    END IF;
+
+    -- Calcular el total final de la cita para devolverlo en el parámetro OUT
+    SELECT COALESCE(SUM(cantidad * precio_unitario), 0)
+      INTO p_nuevo_total
+      FROM detalle_cita
+     WHERE id_cita = p_id_cita;
+END$$
+DELIMITER ;
+
+-- Prueba : La cita 2 (Felipe Zapata) tiene 5 unidades de servicio y suma $145.000
+SELECT * FROM detalle_cita WHERE id_cita = 2;
+
+CALL sp_aplicar_descuento_volumen(2, 10, @total_con_descuento);
+SELECT @total_con_descuento AS total_final_cita; -- Esperado: 130500.00
+SELECT * FROM detalle_cita WHERE id_cita = 2;
+
+--------------------------------------------------------------------------------------------
+/*
+sp_registrar_servicio_cita (Procedimiento almacenado)
+- Qué hace o decide: Consulta el precio actual del servicio en el catálogo y valida si existe; 
+  si no existe, cancela la operación lanzando un error controlado con SIGNAL, y si es válido, 
+  inserta el registro en detalle_cita conservando el precio vigente del momento.
+*/
+
+CALL sp_agendar_cita(1, '2026-11-14', @nueva_cita);
+SELECT @nueva_cita AS id_cita_generada;
+SELECT * FROM cita WHERE id_cita = @nueva_cita;
+
+
+-- 2.2 sp_registrar_servicio_cita (Procedimiento con validación SIGNAL)
+DROP PROCEDURE IF EXISTS sp_registrar_servicio_cita;
+DELIMITER $$
+CREATE PROCEDURE sp_registrar_servicio_cita(
+    IN p_id_cita INT,
+    IN p_id_servicio INT,
+    IN p_cantidad INT
+)
+BEGIN
+    DECLARE v_precio_actual DECIMAL(10,2);
+    
+    -- Obtener el precio actual del catálogo
+    SELECT precio INTO v_precio_actual
+    FROM servicio
+    WHERE id_servicio = p_id_servicio;
+    
+    -- Validar si el servicio existe
+    IF v_precio_actual IS NULL THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Error: El servicio indicado no existe en el catálogo.';
+    ELSE
+        -- Insertar el detalle con el precio histórico
+        INSERT INTO detalle_cita (id_cita, id_servicio, cantidad, precio_unitario)
+        VALUES (p_id_cita, p_id_servicio, p_cantidad, v_precio_actual);
+    END IF;
+END$$
+DELIMITER ;
+
+-- Prueba : Caso Válido: 
+CALL sp_registrar_servicio_cita(@nueva_cita, 1, 1);
+SELECT * FROM detalle_cita WHERE id_cita = @nueva_cita;
+
+-------------------------------------------------------------------------------------------
+/*
+sp_actualizar_precios_categoria (Procedimiento almacenado)
+- Qué hace o decide: Actualiza de forma masiva el precio de todos los servicios pertenecientes 
+  a una categoría específica (como 'estetica') aplicando un porcentaje de incremento recibido por parámetro.
+*/
+
+DROP PROCEDURE IF EXISTS sp_actualizar_precios_categoria;
+DELIMITER $$
+CREATE PROCEDURE sp_actualizar_precios_categoria(
+    IN p_categoria VARCHAR(50),
+    IN p_porcentaje_aumento DECIMAL(5,2)
+)
+BEGIN
+    UPDATE servicio
+    SET precio = precio + (precio * (p_porcentaje_aumento / 100))
+    WHERE categoria = p_categoria;
+END$$
+DELIMITER ;
+
+-- Prueba : 
+SELECT * FROM servicio WHERE categoria = 'estetica';
+CALL sp_actualizar_precios_categoria('estetica', 10);
+SELECT * FROM servicio WHERE categoria = 'estetica';
+
+-- 1. Desactivar el modo seguro
+SET SQL_SAFE_UPDATES = 0;
+
+-- 2. Ejecutar la prueba
+SELECT * FROM servicio WHERE categoria = 'estetica';
+CALL sp_actualizar_precios_categoria('estetica', 10);
+SELECT * FROM servicio WHERE categoria = 'estetica';
+
+-- 3. Volver a activarlo (opcional, pero buena práctica)
+SET SQL_SAFE_UPDATES = 1;
