@@ -774,7 +774,131 @@ SELECT
     fn_obtener_contacto_cliente(id_cliente, 'telefono') AS telefono_contacto
 FROM cliente;
 
+-------------------------------------------------------------------------------------------
+--PROCEDIMIENTOS
+-- sp_registrar_cliente
+-- Registra un cliente nuevo validando que el correo no esté duplicado
+-- y devuelve el ID asignado mediante un parámetro OUT.
 
+DROP PROCEDURE IF EXISTS sp_registrar_cliente;
+DELIMITER $$
+
+CREATE PROCEDURE sp_registrar_cliente(
+    IN  p_nombre VARCHAR(100),
+    IN  p_correo VARCHAR(100),
+    IN  p_telefono VARCHAR(20),
+    OUT p_id_cliente_nuevo INT
+)
+BEGIN
+    DECLARE v_correo_existe INT DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_correo_existe
+        FROM cliente
+        WHERE correo = p_correo;
+
+    IF v_correo_existe > 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Error: Ya existe un cliente registrado con ese correo.';
+    ELSE
+        INSERT INTO cliente (nombre, correo, telefono)
+        VALUES (p_nombre, p_correo, p_telefono);
+
+        SET p_id_cliente_nuevo = LAST_INSERT_ID();
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- Prueba válida: Registrar a Camilo Restrepo
+CALL sp_registrar_cliente('Camilo Restrepo', 'camilo.restrepo@mail.com', '3000200006', @nuevo_cliente);
+SELECT @nuevo_cliente AS id_cliente_registrado;
+SELECT * FROM cliente WHERE id_cliente = @nuevo_cliente;
+
+-- Caso inválido:
+-- CALL sp_registrar_cliente('Otro Usuario', 'camilo.restrepo@mail.com', '3000200099', @error_id);
+
+----------------------------------------------------------------------------------------------
+-- sp_actualizar_contacto_cliente
+-- Actualiza el correo y teléfono de un cliente existente,
+-- verificando primero que su ID exista en el sistema.
+
+DROP PROCEDURE IF EXISTS sp_actualizar_contacto_cliente;
+DELIMITER $$
+
+CREATE PROCEDURE sp_actualizar_contacto_cliente(
+    IN p_id_cliente INT,
+    IN p_nuevo_correo VARCHAR(100),
+    IN p_nuevo_telefono VARCHAR(20)
+)
+BEGIN
+    DECLARE v_existe INT DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_existe
+        FROM cliente
+        WHERE id_cliente = p_id_cliente;
+
+    IF v_existe = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Error: El cliente indicado no existe.';
+    ELSE
+        UPDATE cliente
+                SET correo = p_nuevo_correo,
+                telefono = p_nuevo_telefono
+            WHERE id_cliente = p_id_cliente;
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- Prueba válida: Actualizar los datos de Isabella Correa (id_cliente = 3)
+SELECT id_cliente, nombre, correo, telefono FROM cliente WHERE id_cliente = 3;
+CALL sp_actualizar_contacto_cliente(3, 'isabella.nueva@mail.com', '3115558899');
+SELECT id_cliente, nombre, correo, telefono FROM cliente WHERE id_cliente = 3;
+
+-- Caso inválido :
+-- CALL sp_actualizar_contacto_cliente(99, 'nadie@mail.com', '3000000000');
+
+--------------------------------------------------------------------------------------
+-- sp_cancelar_cita
+-- Elimina una cita y sus servicios asociados en el orden correcto
+-- para mantener la integridad referencial.
+
+DROP PROCEDURE IF EXISTS sp_cancelar_cita;
+DELIMITER $$
+
+CREATE PROCEDURE sp_cancelar_cita(
+    IN p_id_cita INT
+)
+BEGIN
+    DECLARE v_existe INT DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_existe
+        FROM cita
+        WHERE id_cita = p_id_cita;
+
+    IF v_existe = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Error: La cita que intenta cancelar no existe.';
+    ELSE
+        -- Primero borramos los detalles asociados a la cita
+        DELETE FROM detalle_cita WHERE id_cita = p_id_cita;
+        
+        -- Luego borramos el encabezado de la cita
+        DELETE FROM cita WHERE id_cita = p_id_cita;
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- Prueba válida: Cancelar la cita 7 (de Felipe Zapata)
+SELECT * FROM cita WHERE id_cita = 7;
+SELECT * FROM detalle_cita WHERE id_cita = 7;
+
+CALL sp_cancelar_cita(7);
+
+-- Verificar que ya no aparecen en ninguna de las dos tablas
+SELECT * FROM cita WHERE id_cita = 7;
+SELECT * FROM detalle_cita WHERE id_cita = 7;
 
 -------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------
@@ -783,7 +907,7 @@ FROM cliente;
 fn_gasto_historico_cliente (Función almacenada)
 - Qué hace o decide: Calcula el gasto histórico acumulado de un cliente sumando el subtotal 
   (cantidad * precio_unitario) de todos los servicios consumidos a lo largo de todas sus citas, 
-  devolviendo 0 si el cliente aún no registra consumos.
+devolviendo 0 si el cliente aún no registra consumos.
 */
 
 USE checkpoint_caso_02;
