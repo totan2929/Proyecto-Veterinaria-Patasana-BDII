@@ -775,7 +775,7 @@ SELECT
 FROM cliente;
 
 -------------------------------------------------------------------------------------------
---PROCEDIMIENTOS
+-- PROCEDIMIENTOS
 -- sp_registrar_cliente
 -- Registra un cliente nuevo validando que el correo no esté duplicado
 -- y devuelve el ID asignado mediante un parámetro OUT.
