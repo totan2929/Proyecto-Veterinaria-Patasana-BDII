@@ -593,3 +593,59 @@ BEGIN
 END$$
 DELIMITER ;
 -- CALL sp_actualizar_precios_categoria('estetica', 10);
+
+-- ---------------------------------------------------------------------
+-- 3. ROLES Y PERMISOS (5%)
+-- Objetivo: Aplicar el principio del mínimo privilegio en Veterinaria PataSana.
+-- Cada rol agrupa SOLO los permisos estrictamente necesarios para su cargo,
+-- evitando que un usuario borre datos o altere precios por error o abuso.
+-- ---------------------------------------------------------------------
+
+-- 3.1 Crea los 3 roles (paquetes de permisos) si no existen previamente en el servidor
+CREATE ROLE IF NOT EXISTS &#39;rol_consulta_patasana&#39;, &#39;rol_operacion_patasana&#39;,
+&#39;rol_admin_patasana&#39;;
+
+-- Rol 1 (Consulta / Recepción): solo puede leer (SELECT) agenda, clientes y precios; no
+modifica nada
+GRANT SELECT ON checkpoint_caso_02.* TO &#39;rol_consulta_patasana&#39;;
+
+-- Rol 2 (Operación / Veterinario): lee información general y agenda citas ÚNICAMENTE
+mediante
+-- el procedimiento transaccional validado (no puede hacer INSERT/UPDATE/DELETE directo
+en tablas)
+GRANT SELECT ON checkpoint_caso_02.* TO &#39;rol_operacion_patasana&#39;;
+GRANT EXECUTE ON PROCEDURE checkpoint_caso_02.sp_registrar_cita_completa TO
+&#39;rol_operacion_patasana&#39;;
+GRANT EXECUTE ON FUNCTION checkpoint_caso_02.fn_total_cita TO
+&#39;rol_operacion_patasana&#39;;
+
+-- Rol 3 (Administrador): control total únicamente sobre la base de datos de PataSana (sin
+acceso a otros esquemas)
+GRANT ALL PRIVILEGES ON checkpoint_caso_02.* TO &#39;rol_admin_patasana&#39;;
+
+-- 3.2 Crea los 3 usuarios locales con sus credenciales si no existen previamente
+CREATE USER IF NOT EXISTS &#39;recepcion_patasana&#39;@&#39;localhost&#39; IDENTIFIED BY
+&#39;PataSana_123&#39;;
+CREATE USER IF NOT EXISTS &#39;vet_patasana&#39;@&#39;localhost&#39; IDENTIFIED BY
+&#39;PataSana_123&#39;;
+CREATE USER IF NOT EXISTS &#39;admin_patasana&#39;@&#39;localhost&#39; IDENTIFIED BY
+&#39;PataSana_123&#39;;
+
+-- 3.3 Asigna cada rol al usuario correspondiente según su cargo en la veterinaria
+GRANT &#39;rol_consulta_patasana&#39; TO &#39;recepcion_patasana&#39;@&#39;localhost&#39;;
+GRANT &#39;rol_operacion_patasana&#39; TO &#39;vet_patasana&#39;@&#39;localhost&#39;;
+GRANT &#39;rol_admin_patasana&#39; TO &#39;admin_patasana&#39;@&#39;localhost&#39;;
+
+-- 3.4 Activa el rol por defecto al iniciar sesión.
+-- En MySQL 8.0+, un rol asignado con GRANT NO queda activo automáticamente al
+conectarse;
+-- sin SET DEFAULT ROLE, el usuario entraría sin permisos efectivos.
+SET DEFAULT ROLE &#39;rol_consulta_patasana&#39; TO &#39;recepcion_patasana&#39;@&#39;localhost&#39;;
+SET DEFAULT ROLE &#39;rol_operacion_patasana&#39; TO &#39;vet_patasana&#39;@&#39;localhost&#39;;
+SET DEFAULT ROLE &#39;rol_admin_patasana&#39; TO &#39;admin_patasana&#39;@&#39;localhost&#39;;
+
+-- 3.5 Evidencia de permisos (tomar captura de cada SHOW GRANTS para el documento):
+-- Muestra los privilegios efectivos de cada usuario al operar con su rol asignado
+SHOW GRANTS FOR &#39;recepcion_patasana&#39;@&#39;localhost&#39; USING &#39;rol_consulta_patasana&#39;;
+SHOW GRANTS FOR &#39;vet_patasana&#39;@&#39;localhost&#39; USING &#39;rol_operacion_patasana&#39;;
+SHOW GRANTS FOR &#39;admin_patasana&#39;@&#39;localhost&#39; USING &#39;rol_admin_patasana&#39;;
