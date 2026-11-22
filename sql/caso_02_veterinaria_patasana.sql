@@ -649,3 +649,47 @@ SET DEFAULT ROLE &#39;rol_admin_patasana&#39; TO &#39;admin_patasana&#39;@&#39;l
 SHOW GRANTS FOR &#39;recepcion_patasana&#39;@&#39;localhost&#39; USING &#39;rol_consulta_patasana&#39;;
 SHOW GRANTS FOR &#39;vet_patasana&#39;@&#39;localhost&#39; USING &#39;rol_operacion_patasana&#39;;
 SHOW GRANTS FOR &#39;admin_patasana&#39;@&#39;localhost&#39; USING &#39;rol_admin_patasana&#39;;
+
+--------------------------------------------------------------------------------------------------
+
+-- ÍNDICE JUSTIFICADO CON EXPLAIN
+-- Prueba de rendimiento sobre tabla auxiliar sin llaves foráneas
+
+-- Preparación de la tabla de práctica (sin FK para evitar índices automáticos)
+DROP TABLE IF EXISTS practica_cita;
+
+CREATE TABLE practica_cita (
+    id_cita    INT PRIMARY KEY AUTO_INCREMENT,
+    fecha      DATE NOT NULL,
+    id_cliente INT NOT NULL,
+    total_cita DECIMAL(10,2) NOT NULL
+) ENGINE=InnoDB;
+
+-- Carga masiva de 20.000 registros (1.000 clientes, 20 citas por cliente)
+SET SESSION cte_max_recursion_depth = 20000;
+
+INSERT INTO practica_cita (fecha, id_cliente, total_cita)
+WITH RECURSIVE n AS (
+    SELECT 1 AS i
+    UNION ALL
+    SELECT i + 1 FROM n WHERE i < 20000
+)
+SELECT DATE_ADD('2025-01-01', INTERVAL MOD(i, 365) DAY),
+        MOD(i, 1000) + 1,
+        ROUND(15000 + MOD(i * 37, 150000))
+FROM n;
+
+-- Verificación de filas cargadas
+SELECT COUNT(*) AS total_filas, COUNT(DISTINCT id_cliente) AS total_clientes
+FROM practica_cita;
+
+-- Escenario 1: Consulta SIN índice (esperado: type = ALL, key = NULL, rows ≈ 20000)
+SHOW INDEX FROM practica_cita;
+EXPLAIN SELECT * FROM practica_cita WHERE id_cliente = 250;
+
+-- Creación del índice sobre la columna de búsqueda
+CREATE INDEX idx_practica_cita_cliente ON practica_cita (id_cliente);
+
+-- Escenario 2: Consulta CON índice (esperado: type = ref, key = idx_practica_cita_cliente, rows ≈ 20)
+SHOW INDEX FROM practica_cita;
+EXPLAIN SELECT * FROM practica_cita WHERE id_cliente = 250;
