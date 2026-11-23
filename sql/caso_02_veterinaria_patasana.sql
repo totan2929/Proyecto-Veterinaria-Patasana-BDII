@@ -1,6 +1,6 @@
 -- =====================================================================
 -- CASO 02 · Veterinaria PataSana
--- Proyecto Final Integrador | Bases de Datos II (30%)
+-- Proyecto Final Integrador | Bases de Datos II
 -- Veterinaria de barrio que agenda citas de consulta, vacunación y peluquería canina.
 -- Integrantes: Jonathan Cañola Salazar, Jorge Andrés García Mojica, Rubén Darío Gaspar
 -- =====================================================================
