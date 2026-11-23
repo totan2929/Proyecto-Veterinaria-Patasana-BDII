@@ -2,7 +2,7 @@
 -- CASO 02 · Veterinaria PataSana
 -- Proyecto Final Integrador | Bases de Datos II (30%)
 -- Veterinaria de barrio que agenda citas de consulta, vacunación y peluquería canina.
--- Integrantes: [Nombre 1], [Nombre 2], [Nombre 3]
+-- Integrantes: Jonathan Cañola Salazar, Jorge Andrés García Mojica, Rubén Darío Gaspar
 -- =====================================================================
 
 DROP DATABASE IF EXISTS checkpoint_caso_02;
@@ -593,66 +593,146 @@ BEGIN
 END$$
 DELIMITER ;
 -- CALL sp_actualizar_precios_categoria('estetica', 10);
+-- -----------------------------------------------------------------------------------------
+
+-- =====================================================================
+-- =====================================================================
+-- SOLUCIÓN CORTE II / PROYECTO FINAL BD II
+-- =====================================================================
+-- =====================================================================
 
 -- ---------------------------------------------------------------------
--- 3. ROLES Y PERMISOS (5%)
--- Objetivo: Aplicar el principio del mínimo privilegio en Veterinaria PataSana.
--- Cada rol agrupa SOLO los permisos estrictamente necesarios para su cargo,
--- evitando que un usuario borre datos o altere precios por error o abuso.
+-- 1. TRANSACCIÓN - Jonathan
+-- Objetivo: Garantizar atomicidad ("todo o nada") al agendar una cita completa.
+-- Esta operación modifica DOS tablas a la vez:
+--   - Tabla 1: 'cita' (encabezado con fecha y cliente)
+--   - Tabla 2: 'detalle_cita' (servicio contratado, cantidad y precio vigente)
+-- Si el Paso 2 falla (ej. servicio inexistente o cantidad <= 0), el ROLLBACK
+-- revierte el Paso 1 para que NO queden citas huérfanas sin servicios.
 -- ---------------------------------------------------------------------
 
--- 3.1 Crea los 3 roles (paquetes de permisos) si no existen previamente en el servidor
-CREATE ROLE IF NOT EXISTS &#39;rol_consulta_patasana&#39;, &#39;rol_operacion_patasana&#39;,
-&#39;rol_admin_patasana&#39;;
+-- Borra el procedimiento si ya existía, asegurando que el script se pueda reejecutar sin error
+DROP PROCEDURE IF EXISTS sp_registrar_cita_completa;
 
--- Rol 1 (Consulta / Recepción): solo puede leer (SELECT) agenda, clientes y precios; no
-modifica nada
-GRANT SELECT ON checkpoint_caso_02.* TO &#39;rol_consulta_patasana&#39;;
+-- Cambia temporalmente el delimitador de ';' a '$$' para que MySQL lea todo el cuerpo del procedimiento como un solo bloque
+DELIMITER $$
 
--- Rol 2 (Operación / Veterinario): lee información general y agenda citas ÚNICAMENTE
-mediante
--- el procedimiento transaccional validado (no puede hacer INSERT/UPDATE/DELETE directo
-en tablas)
-GRANT SELECT ON checkpoint_caso_02.* TO &#39;rol_operacion_patasana&#39;;
-GRANT EXECUTE ON PROCEDURE checkpoint_caso_02.sp_registrar_cita_completa TO
-&#39;rol_operacion_patasana&#39;;
-GRANT EXECUTE ON FUNCTION checkpoint_caso_02.fn_total_cita TO
-&#39;rol_operacion_patasana&#39;;
+-- Define el procedimiento con 4 parámetros de entrada (IN) y 1 de salida (OUT)
+CREATE PROCEDURE sp_registrar_cita_completa(
+    IN  p_id_cliente       INT,    -- Entrada: ID del cliente que solicita la cita
+    IN  p_fecha            DATE,   -- Entrada: Fecha programada para la cita
+    IN  p_id_servicio      INT,    -- Entrada: ID del servicio del catálogo (tabla 'servicio')
+    IN  p_cantidad         INT,    -- Entrada: Cantidad de unidades del servicio
+    OUT p_id_cita_generada INT     -- Salida: Devuelve el ID creado en 'cita' (o NULL si hubo ROLLBACK)
+)
+BEGIN
+    -- Variable local para verificar si el cliente existe en la tabla 'cliente' (inicia en 0)
+    DECLARE v_existe_cliente INT DEFAULT 0;
+    -- Variable local para almacenar el precio vigente del servicio obtenido desde 'servicio'
+    DECLARE v_precio_actual  DECIMAL(10,2);
 
--- Rol 3 (Administrador): control total únicamente sobre la base de datos de PataSana (sin
-acceso a otros esquemas)
-GRANT ALL PRIVILEGES ON checkpoint_caso_02.* TO &#39;rol_admin_patasana&#39;;
+    -- Manejador automático de errores (EXIT HANDLER):
+    -- Si ocurre CUALQUIER excepción SQL (error de FK, CHECK, o un SIGNAL nuestro), MySQL salta aquí inmediatamente:
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;                      -- Deshace TODOS los cambios hechos desde START TRANSACTION (revierte el Paso 1)
+        SET p_id_cita_generada = NULL; -- Asigna NULL a la salida porque la cita no quedó guardada
+        RESIGNAL;                      -- Relanza el error para que Workbench muestre el mensaje rojo original al usuario
+    END;
 
--- 3.2 Crea los 3 usuarios locales con sus credenciales si no existen previamente
-CREATE USER IF NOT EXISTS &#39;recepcion_patasana&#39;@&#39;localhost&#39; IDENTIFIED BY
-&#39;PataSana_123&#39;;
-CREATE USER IF NOT EXISTS &#39;vet_patasana&#39;@&#39;localhost&#39; IDENTIFIED BY
-&#39;PataSana_123&#39;;
-CREATE USER IF NOT EXISTS &#39;admin_patasana&#39;@&#39;localhost&#39; IDENTIFIED BY
-&#39;PataSana_123&#39;;
+    -- Inicia la transacción: desactiva el guardado automático (autocommit) para este bloque.
+    -- Todo lo que pase a partir de aquí es temporal hasta que se ejecute COMMIT o ROLLBACK.
+    START TRANSACTION;
 
--- 3.3 Asigna cada rol al usuario correspondiente según su cargo en la veterinaria
-GRANT &#39;rol_consulta_patasana&#39; TO &#39;recepcion_patasana&#39;@&#39;localhost&#39;;
-GRANT &#39;rol_operacion_patasana&#39; TO &#39;vet_patasana&#39;@&#39;localhost&#39;;
-GRANT &#39;rol_admin_patasana&#39; TO &#39;admin_patasana&#39;@&#39;localhost&#39;;
+    -- Validación previa: cuenta si existe algún registro con ese id_cliente
+    SELECT COUNT(*) INTO v_existe_cliente
+      FROM cliente
+     WHERE id_cliente = p_id_cliente;
 
--- 3.4 Activa el rol por defecto al iniciar sesión.
--- En MySQL 8.0+, un rol asignado con GRANT NO queda activo automáticamente al
-conectarse;
--- sin SET DEFAULT ROLE, el usuario entraría sin permisos efectivos.
-SET DEFAULT ROLE &#39;rol_consulta_patasana&#39; TO &#39;recepcion_patasana&#39;@&#39;localhost&#39;;
-SET DEFAULT ROLE &#39;rol_operacion_patasana&#39; TO &#39;vet_patasana&#39;@&#39;localhost&#39;;
-SET DEFAULT ROLE &#39;rol_admin_patasana&#39; TO &#39;admin_patasana&#39;@&#39;localhost&#39;;
+    -- Si el conteo es 0, el cliente no existe; lanzamos un error controlado con SIGNAL
+    IF v_existe_cliente = 0 THEN
+        -- SQLSTATE '45000' es el código reservado en SQL para errores personalizados de reglas de negocio
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Error: El cliente indicado no existe en el sistema.';
+    END IF;
 
--- 3.5 Evidencia de permisos (tomar captura de cada SHOW GRANTS para el documento):
--- Muestra los privilegios efectivos de cada usuario al operar con su rol asignado
-SHOW GRANTS FOR &#39;recepcion_patasana&#39;@&#39;localhost&#39; USING &#39;rol_consulta_patasana&#39;;
-SHOW GRANTS FOR &#39;vet_patasana&#39;@&#39;localhost&#39; USING &#39;rol_operacion_patasana&#39;;
-SHOW GRANTS FOR &#39;admin_patasana&#39;@&#39;localhost&#39; USING &#39;rol_admin_patasana&#39;;
+    -- PASO 1 (Modifica Tabla 1: 'cita'): Inserta el encabezado de la cita.
+    -- Aunque este INSERT se ejecuta aquí, todavía NO es definitivo hasta el COMMIT.
+    INSERT INTO cita (fecha, id_cliente)
+    VALUES (p_fecha, p_id_cliente);
 
---------------------------------------------------------------------------------------------------
+    -- Captura el ID recién generado por el AUTO_INCREMENT de la tabla 'cita'
+    SET p_id_cita_generada = LAST_INSERT_ID();
 
--- ÍNDICE JUSTIFICADO CON EXPLAIN
+    -- Busca el precio actual del servicio en el catálogo para guardarlo como precio histórico en detalle_cita
+    SELECT precio INTO v_precio_actual
+      FROM servicio
+     WHERE id_servicio = p_id_servicio;
+
+    -- Si v_precio_actual es NULL, significa que el id_servicio no existe en el catálogo
+    IF v_precio_actual IS NULL THEN
+        -- Al lanzar SIGNAL, se activa el EXIT HANDLER -> ejecuta ROLLBACK -> borra la cita del Paso 1
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Error: El servicio no existe. Se revierte la cita creada.';
+    END IF;
+
+    -- Valida que la cantidad sea mayor a cero (regla de negocio y coherencia con el CHECK)
+    IF p_cantidad <= 0 THEN
+        -- Al lanzar SIGNAL, se activa el EXIT HANDLER -> ejecuta ROLLBACK -> borra la cita del Paso 1
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Error: La cantidad debe ser mayor a cero. Se revierte la cita creada.';
+    END IF;
+
+    -- PASO 2 (Modifica Tabla 2: 'detalle_cita'): Inserta el servicio asociado a la cita recién creada
+    INSERT INTO detalle_cita (id_cita, id_servicio, cantidad, precio_unitario)
+    VALUES (p_id_cita_generada, p_id_servicio, p_cantidad, v_precio_actual);
+
+    -- Si ambos pasos y todas las validaciones terminaron sin errores, confirma los cambios permanentemente
+    COMMIT;
+END$$
+
+-- Restaura el delimitador estándar de MySQL a punto y coma (;)
+DELIMITER ;
+
+-- ---------------------------------------------------------------------
+-- Prueba exitosa (COMMIT)
+-- Demuestra que con datos válidos ambas tablas aumentan en +1 fila.
+-- ---------------------------------------------------------------------
+-- Conteo ANTES de la transacción (esperado: 7 citas, 14 detalles)
+SELECT (SELECT COUNT(*) FROM cita)         AS total_citas_antes,
+       (SELECT COUNT(*) FROM detalle_cita) AS total_detalles_antes;
+
+-- Ejecuta la transacción con datos válidos: cliente 6 (Nicolás Vélez), servicio 1 (Consulta general, $60.000), cantidad 1
+CALL sp_registrar_cita_completa(6, '2026-11-25', 1, 1, @id_cita_ok);
+
+-- Verifica el ID generado (8) y reutiliza la función fn_total_cita del Corte 2 para comprobar el total ($60.000)
+SELECT @id_cita_ok AS id_cita_creada, fn_total_cita(@id_cita_ok) AS total_cita;
+
+-- Conteo DESPUÉS del COMMIT (esperado: 8 citas, 15 detalles -> ambos pasos quedaron guardados)
+SELECT (SELECT COUNT(*) FROM cita)         AS total_citas_despues,
+       (SELECT COUNT(*) FROM detalle_cita) AS total_detalles_despues;
+
+-- ---------------------------------------------------------------------
+--  Prueba fallida (ROLLBACK)
+-- Demuestra que si falla el Paso 2, el Paso 1 se deshace y no queda nada a medias.
+-- Nota: El AUTO_INCREMENT no se devuelve con ROLLBACK (el ID 9 se "quema"), pero la fila NO se guarda.
+-- ---------------------------------------------------------------------
+-- Conteo ANTES de provocar el fallo (esperado: 8 citas, 15 detalles)
+SELECT (SELECT COUNT(*) FROM cita)         AS citas_antes_fallo,
+       (SELECT COUNT(*) FROM detalle_cita) AS detalles_antes_fallo;
+
+-- Se deja comentado para que el script maestro corra de arriba a abajo sin detenerse.
+-- Para tomar la captura de evidencia en Workbench, descomentar y ejecutar con Ctrl+Enter:
+-- CALL sp_registrar_cita_completa(6, '2026-11-26', 999, 1, @id_cita_fail);
+-- Error esperado: "Error: El servicio no existe. Se revierte la cita creada."
+
+-- Conteo DESPUÉS del fallo (esperado: sigue en 8 citas, 15 detalles -> no quedó ninguna cita huérfana)
+SELECT (SELECT COUNT(*) FROM cita)         AS citas_despues_fallo,
+       (SELECT COUNT(*) FROM detalle_cita) AS detalles_despues_fallo;
+-- -----------------------------------------------------------------------------------------
+-- ------------------------------------------------------------------------------------------
+
+-- 2 ÍNDICE JUSTIFICADO CON EXPLAIN - Jorge
 -- Prueba de rendimiento sobre tabla auxiliar sin llaves foráneas
 
 -- Preparación de la tabla de práctica (sin FK para evitar índices automáticos)
@@ -693,3 +773,50 @@ CREATE INDEX idx_practica_cita_cliente ON practica_cita (id_cliente);
 -- Escenario 2: Consulta CON índice (esperado: type = ref, key = idx_practica_cita_cliente, rows ≈ 20)
 SHOW INDEX FROM practica_cita;
 EXPLAIN SELECT * FROM practica_cita WHERE id_cliente = 250;
+
+-- ----------------------------------------------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- 3. ROLES Y PERMISOS - Rubén
+-- Objetivo: Aplicar el principio del mínimo privilegio en Veterinaria PataSana.
+-- Cada rol agrupa SOLO los permisos estrictamente necesarios para su cargo,
+-- evitando que un usuario borre datos o altere precios por error o abuso.
+-- ---------------------------------------------------------------------
+
+-- 3.1 Crea los 3 roles (paquetes de permisos) si no existen previamente en el servidor
+CREATE ROLE IF NOT EXISTS 'rol_consulta_patasana', 'rol_operacion_patasana', 'rol_admin_patasana';
+
+-- Rol 1 (Consulta / Recepción): solo puede leer (SELECT) agenda, clientes y precios; no modifica nada
+GRANT SELECT ON checkpoint_caso_02.* TO 'rol_consulta_patasana';
+
+-- Rol 2 (Operación / Veterinario): lee información general y agenda citas ÚNICAMENTE mediante
+-- el procedimiento transaccional validado (no puede hacer INSERT/UPDATE/DELETE directo en tablas)
+GRANT SELECT ON checkpoint_caso_02.* TO 'rol_operacion_patasana';
+GRANT EXECUTE ON PROCEDURE checkpoint_caso_02.sp_registrar_cita_completa TO 'rol_operacion_patasana';
+GRANT EXECUTE ON FUNCTION  checkpoint_caso_02.fn_total_cita              TO 'rol_operacion_patasana';
+
+-- Rol 3 (Administrador): control total únicamente sobre la base de datos de PataSana (sin acceso a otros esquemas)
+GRANT ALL PRIVILEGES ON checkpoint_caso_02.* TO 'rol_admin_patasana';
+
+-- 3.2 Crea los 3 usuarios locales con sus credenciales si no existen previamente
+CREATE USER IF NOT EXISTS 'recepcion_patasana'@'localhost' IDENTIFIED BY 'PataSana_123';
+CREATE USER IF NOT EXISTS 'vet_patasana'@'localhost'       IDENTIFIED BY 'PataSana_123';
+CREATE USER IF NOT EXISTS 'admin_patasana'@'localhost'     IDENTIFIED BY 'PataSana_123';
+
+-- 3.3 Asigna cada rol al usuario correspondiente según su cargo en la veterinaria
+GRANT 'rol_consulta_patasana'  TO 'recepcion_patasana'@'localhost';
+GRANT 'rol_operacion_patasana' TO 'vet_patasana'@'localhost';
+GRANT 'rol_admin_patasana'     TO 'admin_patasana'@'localhost';
+
+-- 3.4 Activa el rol por defecto al iniciar sesión.
+-- En MySQL 8.0+, un rol asignado con GRANT NO queda activo automáticamente al conectarse;
+-- sin SET DEFAULT ROLE, el usuario entraría sin permisos efectivos.
+SET DEFAULT ROLE 'rol_consulta_patasana'  TO 'recepcion_patasana'@'localhost';
+SET DEFAULT ROLE 'rol_operacion_patasana' TO 'vet_patasana'@'localhost';
+SET DEFAULT ROLE 'rol_admin_patasana'     TO 'admin_patasana'@'localhost';
+
+-- 3.5 Evidencia de permisos (tomar captura de cada SHOW GRANTS para el documento):
+-- Muestra los privilegios efectivos de cada usuario al operar con su rol asignado
+SHOW GRANTS FOR 'recepcion_patasana'@'localhost' USING 'rol_consulta_patasana';
+SHOW GRANTS FOR 'vet_patasana'@'localhost'       USING 'rol_operacion_patasana';
+SHOW GRANTS FOR 'admin_patasana'@'localhost'     USING 'rol_admin_patasana';
